@@ -8,7 +8,7 @@
 #       Author: rkumar http://github.com/rkumar/mancurses/
 #         Date: 2011-11-09 - 16:59
 #      License: Same as Ruby's License (http://www.ruby-lang.org/LICENSE.txt)
-#  Last update: 2013-03-07 20:52
+#  Last update: 2013-03-08 01:14
 #
 #  == CHANGES
 #  == TODO 
@@ -17,12 +17,14 @@
 #     x user can put text or list
 #     . handle putting data again and overwriting existing
 #     . formatted text
-#     - search and other features
+#     x search and other features
 #     - can pad movement and other ops be abstracted into module for reuse
 #     / get scrolling like in vim (C-f e y b d)
 #     - alert issue of leaving a blank is poss due to using prefresh i/o copywin
 #
 #   == TODO 2013-03-07 - 20:34 
+#   _ key bindings not showing up -- bind properly
+#   _ F1 screen leaves everything blank, so does bindings
 # ----------------------------------------------------------------------------- #
 #
 require 'rbcurse'
@@ -271,23 +273,23 @@ module RubyCurses
     #
     def map_keys
       @mapped_keys = true
-      bind_key([?g,?g]){ goto_start } # mapping double keys like vim
-      bind_key(279){ goto_start } 
-      bind_keys([?G,277]){ goto_end } 
-      bind_keys([?k,KEY_UP]){ up } 
-      bind_keys([?j,KEY_DOWN]){ down } 
-      bind_key(?\C-e){ scroll_window_down } 
-      bind_key(?\C-y){ scroll_window_up } 
-      bind_keys([32,338, ?\C-d]){ scroll_forward } 
+      bind_key([?g,?g], 'goto_start'){ goto_start } # mapping double keys like vim
+      bind_key(279, 'goto_start'){ goto_start } 
+      bind_keys([?G,277], 'goto end'){ goto_end } 
+      bind_keys([?k,KEY_UP], "Up"){ up } 
+      bind_keys([?j,KEY_DOWN], "Down"){ down } 
+      bind_key(?\C-e, "Scroll Window Down"){ scroll_window_down } 
+      bind_key(?\C-y, "Scroll Window Up"){ scroll_window_up } 
+      bind_keys([32,338, ?\C-d], "Scroll Forward"){ scroll_forward } 
       bind_keys([?\C-b,339]){ scroll_backward } 
       bind_key([?',?']){ goto_last_position } # vim , goto last row position (not column)
-      #bind_key(?/, :ask_search)
-      #bind_key(?n, :find_more)
+      bind_key(?/, :ask_search)
+      bind_key(?n, :find_more)
       bind_key([?\C-x, ?>], :scroll_right)
       bind_key([?\C-x, ?<], :scroll_left)
       bind_key(?\M-l, :scroll_right)
       bind_key(?\M-h, :scroll_left)
-      bind_key([?\C-x, ?\C-s], :saveas)
+      #bind_key([?\C-x, ?\C-s], :saveas)
       #bind_key(?r) { getstr("Enter a word: ") }
       #bind_key(?m, :disp_menu)
     end
@@ -377,6 +379,27 @@ module RubyCurses
       @oldindex = tmp
       bounds_check
     end
+    def scroll_right
+      if @content_cols < @cols
+        maxpcol = 0
+      else
+        maxpcol = @content_cols - @cols
+      end
+      @pcol += 1
+      @pcol = maxpcol if @pcol > maxpcol
+      # to prevent right from retaining earlier painted values
+      # padreader does not do a clear, yet works fine.
+      # OK it has an update_panel after padrefresh, that clears it seems.
+      #this clears entire window not just the pad
+      #FFI::NCurses.wclear(@window.get_window)
+      # so border and title is repainted after window clearing
+      #
+      # Next line was causing all sorts of problems when scrolling  with ansi formatted text
+      #@repaint_all = true
+    end
+    def scroll_left
+      @pcol -= 1
+    end
     #
     #
     #
@@ -389,35 +412,16 @@ module RubyCurses
 
       @maxrow = @content_rows - @rows
       @maxcol = @content_cols - @cols 
-      if @content_cols < @cols
-        maxpcol = 0
-      else
-        maxpcol = @content_cols - @cols
-      end
 
       # need to understand the above line, can go below zero.
       # all this seems to work fine in padreader.rb in util.
       # somehow maxcol going to -33
       @oldrow = @prow
       @oldcol = @pcol
-      $log.debug "XXX: PAD got #{ch} maxcol = #{@maxcol} cols=#{@cols}, maxpcol = #{maxpcol}"
+      #$log.debug "XXX: PAD got #{ch} maxcol = #{@maxcol} cols=#{@cols}, maxpcol = #{maxpcol}"
       begin
         case ch
-        when key(?L)
-          ## We need to check for overflowing
-          @pcol += 1
-          @pcol = maxpcol if @pcol > maxpcol
-          # to prevent right from retaining earlier painted values
-          # padreader does not do a clear, yet works fine.
-          # OK it has an update_panel after padrefresh, that clears it seems.
-          #this clears entire window not just the pad
-          #FFI::NCurses.wclear(@window.get_window)
-          # so border and title is repainted after window clearing
-          #
-          # Next line was causing all sorts of problems when scrolling  with ansi formatted text
-          #@repaint_all = true
         when key(?H)
-          @pcol -= 1
         when key(?l)
           # TODO take multipler
           #@pcol += 1
@@ -549,6 +553,66 @@ module RubyCurses
       end
       @pcol = 0 if @pcol < 0
     end
+    public
+    ## 
+    # Ask user for string to search for
+    def ask_search
+      str = get_string("Enter pattern: ")
+      return if str.nil? 
+      str = @last_regex if str == ""
+      return if str == ""
+      ix = next_match str
+      return unless ix
+      @last_regex = str
+
+      @oldindex = @current_index
+      @current_index = ix[0]
+      @ccol = ix[1]
+      ensure_visible
+    end
+    ## 
+    # Find next matching row for string accepted in ask_search
+    #
+    def find_more
+      return unless @last_regex
+      ix = next_match @last_regex
+      return unless ix
+      @oldindex = @current_index
+      @current_index = ix[0]
+      @ccol = ix[1]
+      ensure_visible
+    end
+
+    ## 
+    # Find the next row that contains given string
+    # @return row and col offset of match, or nil
+    # @param String to find
+    def next_match str
+      first = nil
+      ## content can be string or Chunkline, so we had to write <tt>index</tt> for this.
+      ## =~ does not give an error, but it does not work.
+      @content.each_with_index do |line, ix|
+        col = line.index str
+        if col
+          first ||= [ ix, col ]
+          if ix > @current_index
+            return [ix, col]
+          end
+        end
+      end
+      return first
+    end
+    ## 
+    # Ensure current row is visible, if not make it first row
+    # TODO - need to check if its at end and then reduce scroll at rows, 
+    # @param current_index (default if not given)
+    #
+    def ensure_visible row = @current_line
+      unless is_visible? row
+          @prow = @current_index
+      end
+    end
+
   end  # class textpad
 
   # a test renderer to see how things go
@@ -639,7 +703,7 @@ if __FILE__ == $PROGRAM_NAME
       ## no matter what you do, man's output gets wrapped to 80 cols if not going to a terminal.
     end
     ## create two side by side pads on for ansi and one for ruby
-    p = RubyCurses::TextPad.new @form, :height => FFI::NCurses.LINES, :width => w, :row => 0, :col => 0 , :title => " ansi ", :name => "textpad"
+    p = RubyCurses::TextPad.new @form, :height => FFI::NCurses.LINES-1, :width => w, :row => 0, :col => 0 , :title => " mancurses ", :name => "textpad"
     #fn = "m.m"
     #text = File.open(fn,"r").readlines
     file = `man man`
@@ -651,6 +715,10 @@ if __FILE__ == $PROGRAM_NAME
       RubyCurses::TextPad.new @form, :filename => "bin/mancurses", :height => FFI::NCurses.LINES, :width => w2, :row => 0, :col => w+1 , :title => " ruby "
     end
     #throw :close
-    #status_line
+      @status_line = status_line :row => Ncurses.LINES-1
+
+      @status_line.command {
+        "q Quit | ? Keys | M-c Program |  " 
+      }
   end
 end
