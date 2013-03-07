@@ -8,7 +8,7 @@
 #       Author: rkumar http://github.com/rkumar/mancurses/
 #         Date: 2011-11-09 - 16:59
 #      License: Same as Ruby's License (http://www.ruby-lang.org/LICENSE.txt)
-#  Last update: 2013-03-07 20:39
+#  Last update: 2013-03-07 20:52
 #
 #  == CHANGES
 #  == TODO 
@@ -642,10 +642,9 @@ if __FILE__ == $PROGRAM_NAME
     p = RubyCurses::TextPad.new @form, :height => FFI::NCurses.LINES, :width => w, :row => 0, :col => 0 , :title => " ansi ", :name => "textpad"
     #fn = "m.m"
     #text = File.open(fn,"r").readlines
-    #file = `man man | col -b`
     file = `man man`
     text = convert_man_to_ansi(file)
-    File.open("t.t", 'w') { |file| file.write(text.join "\n") }
+    #File.open("t.t", 'w') { |file| file.write(text.join "\n") }
     p.formatted_text(text, :ansi)
     #p.text(text)
     if !single
