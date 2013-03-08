@@ -8,7 +8,7 @@
 #       Author: rkumar http://github.com/rkumar/mancurses/
 #         Date: 2011-11-09 - 16:59
 #      License: Same as Ruby's License (http://www.ruby-lang.org/LICENSE.txt)
-#  Last update: 2013-03-08 01:14
+#  Last update: 2013-03-08 21:03
 #
 #  == CHANGES
 #  == TODO 
@@ -171,6 +171,7 @@ module RubyCurses
     ## 2013-03-07 - 19:57 changed width to @content_cols since data not printing
     # in some cases fully when ansi sequences were present int some line but not in others
     # lines without ansi were printing less by a few chars.
+    # This was prolly copied from rwindow, where it is okay since its for a specific width
     def print(string, _width = @content_cols)
       #return unless visible?
       w = _width == 0? Ncurses.COLS : _width
@@ -239,6 +240,12 @@ module RubyCurses
 
     public
     def repaint
+      ## 2013-03-08 - 21:01 This is the fix to the issue of form callign an event like ? or F1
+      # which throws up a messagebox which leaves a black rect. We have no place to put a refresh
+      # However, form does call repaint for all objects, so we can do a padref here. Otherwise,
+      # it would get rejected. UNfortunately this may happen more often we want, but we never know
+      # when something pops up on the screen.
+      padrefresh unless @repaint_required
       return unless @repaint_required
       if @formatted_text
         $log.debug "XXX:  INSIDE FORMATTED TEXT "
@@ -462,9 +469,10 @@ module RubyCurses
             $log.error " TEXTPAD ERROR INS #{err} "
             $log.debug(err.backtrace.join("\n"))
             textdialog ["Error in TextPad: #{err} ", *err.backtrace], :title => "Exception"
-            # FIXME why does this result in a blank spot on screen till its refreshed again
-            # should not happen if its deleting its panel and doing an update panel
           end
+          ## NOTE if textpad does not handle the event and it goes to form which pops
+          # up a messagebox, then padrefresh does not happen, since control does not 
+          # come back here, so a black rect is left on screen
           return :UNHANDLED if ret == :UNHANDLED
         end
         bounds_check
