@@ -8,7 +8,7 @@
 #       Author: rkumar http://github.com/rkumar/mancurses/
 #         Date: 2011-11-09 - 16:59
 #      License: Same as Ruby's License (http://www.ruby-lang.org/LICENSE.txt)
-#  Last update: 2013-03-08 21:03
+#  Last update: 2013-03-09 01:24
 #
 #  == CHANGES
 #  == TODO 
@@ -80,7 +80,7 @@ module RubyCurses
       @scrollatrows = @height - 3
       @oldindex = @current_index = 0
       # column cursor
-      @ccol = 0
+      @curpos = 0
       @repaint_required = true
     end
     def rowcol #:nodoc:
@@ -296,23 +296,63 @@ module RubyCurses
       bind_key([?\C-x, ?<], :scroll_left)
       bind_key(?\M-l, :scroll_right)
       bind_key(?\M-h, :scroll_left)
-      #bind_key([?\C-x, ?\C-s], :saveas)
-      #bind_key(?r) { getstr("Enter a word: ") }
-      #bind_key(?m, :disp_menu)
+      bind_key(?L, :bottom_of_window)
+      bind_key(?M, :middle_of_window)
+      bind_key(?H, :top_of_window)
+      bind_key(?w, :forward_word)
     end
 
     # goto first line of file
     def goto_start
       @oldindex = @current_index
-      @current_index = @ccol = 0
-      @pcol = @prow = 0
+      $multiplier ||= 0
+      if $multiplier > 0
+        goto_line $multiplier
+        return
+      end
+      @current_index = 0
+      @curpos = @pcol = @prow = 0
+      @prow = 0
+      $multiplier = 0
     end
 
     # goto last line of file
     def goto_end
       @oldindex = @current_index
+      $multiplier ||= 0
+      if $multiplier > 0
+        goto_line $multiplier
+        return
+      end
       @current_index = @content_rows-1
       @prow = @current_index - @scrollatrows
+      $multiplier = 0
+    end
+    def goto_line line
+      ## we may need to calculate page, zfm style and place at right position for ensure visible
+      @current_index = line
+      ensure_visible line
+      $multiplier = 0
+    end
+    def top_of_window
+      @current_index = @prow 
+      $multiplier ||= 0
+      if $multiplier > 0
+        @current_index += $multiplier
+        $multiplier = 0
+      end
+    end
+    def bottom_of_window
+      @current_index = @prow + @scrollatrows
+      $multiplier ||= 0
+      if $multiplier > 0
+        @current_index -= $multiplier
+        $multiplier = 0
+      end
+    end
+    def middle_of_window
+      @current_index = @prow + (@scrollatrows/2)
+      $multiplier = 0
     end
 
     # move down a line mimicking vim's j key
@@ -335,7 +375,7 @@ module RubyCurses
       @current_index -= num
       unless is_visible? @current_index
         if @prow > @current_index
-          $status_message.value = "1 #{@prow} > #{@current_index} "
+          #$status_message.value = "1 #{@prow} > #{@current_index} "
           @prow -= 1
         else
         end
@@ -425,26 +465,25 @@ module RubyCurses
       # somehow maxcol going to -33
       @oldrow = @prow
       @oldcol = @pcol
-      #$log.debug "XXX: PAD got #{ch} maxcol = #{@maxcol} cols=#{@cols}, maxpcol = #{maxpcol}"
+      $log.debug "XXX: PAD got #{ch} prow = #{@prow}"
       begin
         case ch
-        when key(?H)
         when key(?l)
           # TODO take multipler
           #@pcol += 1
-          if @ccol < @cols
-            @ccol += 1
+          if @curpos < @cols
+            @curpos += 1
           end
         when key(?$)
           #@pcol = @maxcol - 1
-          @ccol = [@content[@current_index].size, @cols].min
+          @curpos = [@content[@current_index].size, @cols].min
         when key(?h)
           # TODO take multipler
-          if @ccol > 0
-            @ccol -= 1
+          if @curpos > 0
+            @curpos -= 1
           end
         when key(?0)
-          @ccol = 0
+          @curpos = 0
       when ?0.getbyte(0)..?9.getbyte(0)
         if ch == ?0.getbyte(0) && $multiplier == 0
           # copy of C-a - start of line
@@ -462,6 +501,7 @@ module RubyCurses
           # check for bindings, these cannot override above keys since placed at end
           begin
             ret = process_key ch, self
+            $multiplier = 0
             ## If i press C-x > i get an alert from rwidgets which blacks the screen
             # if i put a padrefresh here it becomes okay but only for one pad,
             # i still need to do it for all pads.
@@ -522,10 +562,10 @@ module RubyCurses
       r,c = rowcol
       @current_index = 0 if @current_index < 0
       @current_index = @content_rows-1 if @current_index > @content_rows-1
-      $status_message.value = "visible #{@prow} , #{@current_index} "
+      #$status_message.value = "visible #{@prow} , #{@current_index} "
       unless is_visible? @current_index
         if @prow > @current_index
-          $status_message.value = "1 #{@prow} > #{@current_index} "
+          #$status_message.value = "1 #{@prow} > #{@current_index} "
           @prow -= 1
         else
         end
@@ -537,8 +577,8 @@ module RubyCurses
       @crow = r if @crow < r
       # 2 depends on whetehr suppressborders
       @crow = @row + @height -2 if @crow >= r + @height -2
-      setrowcol @crow, @ccol+c
-      lastcurpos @crow, @ccol+c
+      setrowcol @crow, @curpos+c
+      lastcurpos @crow, @curpos+c
       if @oldrow != @prow || @oldcol != @pcol
         @repaint_required = true
       end
@@ -575,7 +615,7 @@ module RubyCurses
 
       @oldindex = @current_index
       @current_index = ix[0]
-      @ccol = ix[1]
+      @curpos = ix[1]
       ensure_visible
     end
     ## 
@@ -587,7 +627,7 @@ module RubyCurses
       return unless ix
       @oldindex = @current_index
       @current_index = ix[0]
-      @ccol = ix[1]
+      @curpos = ix[1]
       ensure_visible
     end
 
@@ -615,10 +655,40 @@ module RubyCurses
     # TODO - need to check if its at end and then reduce scroll at rows, 
     # @param current_index (default if not given)
     #
-    def ensure_visible row = @current_line
+    def ensure_visible row = @current_index
       unless is_visible? row
           @prow = @current_index
       end
+    end
+    def forward_word
+      $multiplier = 1 if !$multiplier || $multiplier == 0
+      line = @current_index
+      buff = @content[line].to_s
+      return unless buff
+      pos = @curpos || 0 # list does not have curpos
+      $multiplier.times {
+        found = buff.index(/[[:punct:][:space:]]\w/, pos)
+        if !found
+          # if not found, we've lost a counter
+          if line+1 < @content.length
+            line += 1
+          else
+            return
+          end
+          pos = 0
+        else
+          pos = found + 1
+        end
+        $log.debug " forward_word: pos #{pos} line #{line} buff: #{buff}"
+      }
+      $multiplier = 0
+      @current_index = line
+      @curpos = pos
+      ensure_visible
+      #@buffer = @list[@current_index].to_s
+      #set_form_row
+      #set_form_col pos
+      @repaint_required = true
     end
 
   end  # class textpad
@@ -714,6 +784,7 @@ if __FILE__ == $PROGRAM_NAME
     p = RubyCurses::TextPad.new @form, :height => FFI::NCurses.LINES-1, :width => w, :row => 0, :col => 0 , :title => " mancurses ", :name => "textpad"
     #fn = "m.m"
     #text = File.open(fn,"r").readlines
+    ENV["MANWIDTH"] = w.to_s
     file = `man man`
     text = convert_man_to_ansi(file)
     #File.open("t.t", 'w') { |file| file.write(text.join "\n") }
