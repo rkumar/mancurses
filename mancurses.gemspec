@@ -4,7 +4,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name          = "mancurses"
-  spec.version       = "0.0.3"
+  spec.version       = "0.0.4"
   spec.authors       = ["Rahul Kumar"]
   spec.email         = ["sentinel1879@gmail.com"]
   spec.description   = %q{view manpages in an ncurses window and navigate with vim bindings}
